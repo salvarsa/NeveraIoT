@@ -25,11 +25,6 @@ const int redLedPin = 19;
 const int buzzerPin = 25;
 const int relayPin = 26;
 
-void accesoConcedido();
-void accesoDenegado();
-unsigned long connectionStartTime = 0;
-bool showingConnectionMessage = false;
-
 String text;
 char c;
 unsigned long lastReconnectAttempt = 0;
@@ -62,9 +57,6 @@ void wifiConnect() {
     Serial.print("IP: ");
     Serial.println(WiFi.localIP());
     showMessage("Conectado!", 1, 0);
-    showingConnectionMessage = true;
-    connectionStartTime = millis();
-    
   } else {
     Serial.println("\nError conexion WiFi");
     showMessage("Error WiFi", 1, 0);
@@ -97,11 +89,6 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED && millis() - lastReconnectAttempt > 10000) {
     lastReconnectAttempt = millis();
     wifiConnect();
-  }
-
-  if(showingConnectionMessage && (millis() - connectionStartTime >= 3000)) {
-    showMessage("Acerca tu tarjeta...");
-    showingConnectionMessage = false;
   }
 
   // Lectura RFID
@@ -139,8 +126,7 @@ void check() {
   HTTPClient http;
   http.begin(url);
   
-  http.addHeader("Content-Type", "application/json"); 
-  int httpCode = http.POST("{}");
+  int httpCode = http.GET();
   
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
@@ -150,35 +136,24 @@ void check() {
     DeserializationError error = deserializeJson(doc, payload);
     
     if (!error) {
-      // Verificación de estructura JSON
-      if( doc.containsKey("data") && 
-          doc["data"].is<JsonObject>() && 
-          doc["data"].containsKey("names") && 
-          doc["data"]["names"].is<JsonObject>() && 
-          !doc["data"]["names"]["firstName"].isNull() && 
-          !doc["data"]["names"]["lastName"].isNull()) 
-      {
-        String firstName = doc["data"]["names"]["firstName"].as<String>();
-        String lastName = doc["data"]["names"]["lastName"].as<String>();
-
-        if(firstName != "null" && lastName != "null" && !firstName.isEmpty() && !lastName.isEmpty()) {
-          String welcomeMsg = "Hola " + firstName + " " + lastName;
-          showMessage(welcomeMsg);
+      String firstName = doc["data"]["names"]["firstName"].as<String>();
+      String lastName = doc["data"]["names"]["lastName"].as<String>();
+      
+      if(!firstName.isEmpty() && !lastName.isEmpty()) {
+        String welcomeMsg = "Hola " + firstName + " " + lastName;
+        showMessage(welcomeMsg);
         
-          // Pitido de acceso
-          for(int i=0; i<2; i++){
-            digitalWrite(buzzerPin, HIGH);
-            delay(100);
-            digitalWrite(buzzerPin, LOW);
-            delay(50);
-          }
-          accesoConcedido();
-        } else {
-          showMessage("Tarjeta no valida", 1, 0);
-          accesoDenegado();
+        // Pitido de acceso (2 beeps cortos)
+        for(int i=0; i<2; i++){
+          digitalWrite(buzzerPin, HIGH);
+          delay(100);
+          digitalWrite(buzzerPin, LOW);
+          delay(50);
         }
+        
+        accesoConcedido();
       } else {
-        Serial.println("Estructura JSON inválida");
+        showMessage("Tarjeta no valida", 1, 0);
         accesoDenegado();
       }
     } else {
@@ -191,6 +166,7 @@ void check() {
     showMessage("Error servidor", 1, 0);
     accesoDenegado();
   }
+  
   http.end();
 }
 
