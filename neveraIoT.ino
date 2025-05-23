@@ -16,8 +16,8 @@ HardwareSerial RFID(2);
 // Configuración WiFi y servidor
 const char* ssid = "Codecraft Devs";
 const char* password = "CODEcr4ftD3V2023!";
-const char* server = "10.2.20.115";
-const int port = 4888;
+const char* server = "10.2.20.113";
+const int port = 1716;
 
 // Pines
 const int greenLedPin = 18;
@@ -106,7 +106,7 @@ void loop() {
 
 void check() {
   text = text.substring(1, 11);
-  Serial.print("UID leído: ");
+  Serial.print("Card Code leído: ");
   Serial.println(text);
 
   if(WiFi.status() != WL_CONNECTED) {
@@ -120,7 +120,7 @@ void check() {
   }
 
   String url = "http://" + String(server) + ":" + String(port) + 
-              "/api/v1/employees/cardCode/" + text;
+              "/api/v1/user/cardCode/" + text;
   Serial.println("Enviando a: " + url);
 
   HTTPClient http;
@@ -130,30 +130,27 @@ void check() {
   
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
-    Serial.println("Respuesta: " + payload);
+    Serial.println("Respuesta del servidor: " + payload);
 
     DynamicJsonDocument doc(512);
     DeserializationError error = deserializeJson(doc, payload);
     
     if (!error) {
-      String firstName = doc["data"]["names"]["firstName"].as<String>();
-      String lastName = doc["data"]["names"]["lastName"].as<String>();
-      
-      if(!firstName.isEmpty() && !lastName.isEmpty()) {
-        String welcomeMsg = "Hola " + firstName + " " + lastName;
+      if(doc.size() > 0) {
+        String firstName = doc[0]["firstName"].as<String>();
+        String lastName = doc[0]["lastName"].as<String>();
+        String userId = doc[0]["id"].as<String>();
+        
+        String welcomeMsg = "Bienvenido:\n" + firstName + " " + lastName;
         showMessage(welcomeMsg);
         
-        // Pitido de acceso (2 beeps cortos)
-        for(int i=0; i<2; i++){
-          digitalWrite(buzzerPin, HIGH);
-          delay(100);
-          digitalWrite(buzzerPin, LOW);
-          delay(50);
-        }
+        // Activar interfaz web (simular click)
+        sendWebUpdate(userId);
         
+        // Indicadores de acceso
         accesoConcedido();
       } else {
-        showMessage("Tarjeta no valida", 1, 0);
+        showMessage("Tarjeta no registrada", 1, 0);
         accesoDenegado();
       }
     } else {
@@ -170,10 +167,32 @@ void check() {
   http.end();
 }
 
+void sendWebUpdate(String userId) {
+  String url = "http://" + String(server) + ":" + String(port) + 
+              "/api/v1/user/last-access";
+  
+  HTTPClient http;
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  
+  String payload = "{\"userId\":\"" + userId + "\"}";
+  int httpCode = http.POST(payload);
+  
+  if(httpCode == HTTP_CODE_OK) {
+    Serial.println("Actualización web enviada");
+  } else {
+    Serial.println("Error en actualización web. Código: " + String(httpCode));
+  }
+  
+  http.end();
+}
+
 void accesoConcedido() {
+  digitalWrite(buzzerPin, HIGH);
   digitalWrite(greenLedPin, HIGH);
   digitalWrite(relayPin, HIGH);
   delay(5000);
+  digitalWrite(buzzerPin, LOW);
   digitalWrite(greenLedPin, LOW);
   digitalWrite(relayPin, LOW);
   showMessage("Acerca tu tarjeta...");
