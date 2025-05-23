@@ -28,6 +28,11 @@ const int relayPin = 26;
 String text;
 char c;
 unsigned long lastReconnectAttempt = 0;
+bool accessActive = false;
+unsigned long lastStatusCheck = 0;
+String lastUid = "";
+unsigned long lastReadTime = 0;
+const unsigned long debounceDelay = 5000;
 
 void showMessage(const String &msg, int textSize = 1, int y = 10) {
   display.clearDisplay();
@@ -99,9 +104,18 @@ void loop() {
   }
 
   if (text.length() > 20) {
+  String uid = text.substring(1, 11);
+  unsigned long now = millis();
+
+  if (uid != lastUid || now - lastReadTime > debounceDelay) {
+    lastUid = uid;
+    lastReadTime = now;
+    text = uid;
     check();
-    text = "";
   }
+
+  text = "";
+}
 }
 
 void check() {
@@ -149,6 +163,17 @@ void check() {
         
         // Indicadores de acceso
         accesoConcedido();
+
+        accessActive = true;
+        while(accessActive) {
+            if(millis() - lastStatusCheck > 1000) {
+                checkAccessStatus();
+                lastStatusCheck = millis();
+            }
+            delay(100);
+        }
+
+        showMessage("Acerca tu tarjeta...");
       } else {
         showMessage("Tarjeta no registrada", 1, 0);
         accesoDenegado();
@@ -164,6 +189,28 @@ void check() {
     accesoDenegado();
   }
   
+  http.end();
+}
+
+void checkAccessStatus() {
+  String url = "http://" + String(server) + ":" + String(port) + "/api/v1/user/last-access";
+  
+  HTTPClient http;
+  http.begin(url);
+  
+  int httpCode = http.GET();
+  if (httpCode == HTTP_CODE_OK) {
+    String payload = http.getString();
+    DynamicJsonDocument doc(128);
+    deserializeJson(doc, payload);
+    
+    accessActive = doc["isActive"];
+    if(!accessActive) {
+        digitalWrite(relayPin, LOW);
+        digitalWrite(greenLedPin, LOW);
+        digitalWrite(buzzerPin, LOW);
+    }
+  }
   http.end();
 }
 
@@ -188,14 +235,12 @@ void sendWebUpdate(String userId) {
 }
 
 void accesoConcedido() {
-  digitalWrite(buzzerPin, HIGH);
   digitalWrite(greenLedPin, HIGH);
   digitalWrite(relayPin, HIGH);
-  delay(5000);
+  digitalWrite(buzzerPin, HIGH);
+  delay(100); // Pequeño beep de confirmación
   digitalWrite(buzzerPin, LOW);
   digitalWrite(greenLedPin, LOW);
-  digitalWrite(relayPin, LOW);
-  showMessage("Acerca tu tarjeta...");
 }
 
 void accesoDenegado() {
